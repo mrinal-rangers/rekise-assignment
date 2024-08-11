@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Geolocation</title>
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.8.0/dist/leaflet.css" />
+	<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+
+	<style>
+		body {
+			margin: 0;
+			padding: 0;
+		}
+		.rotated-icon {
+			transform: rotate(45deg); 
+		  }
+	</style>
+
+</head>
+
+<body>
+	<div id="map" style="width:100%; height: 100vh"></div>
+	<script src="https://unpkg.com/leaflet@1.8.0/dist/leaflet.js"></script>
+	<script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+	<script>
+		var map = L.map('map').setView([22.2167, 91.6078], 11); 
+		mapLink = "<a href='http://openstreetmap.org'>OpenStreetMap</a>";
+		L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
+			attribution: 'Leaflet &copy; ' + mapLink + ', contribution',
+			maxZoom: 18
+		}).addTo(map);
+
+		var startIcon = L.icon({
+			iconUrl: './assets/start.png', 
+			iconSize: [50, 50]
+		});
+
+		var endIcon = L.icon({
+			iconUrl: './assets/end.png',
+			iconSize: [50, 50]
+		});
+		
+
+		var startPoint = L.marker([22.1696, 91.4996], { icon: startIcon }).addTo(map);
+		var endPoint = L.marker([22.2637, 91.7159], { icon: endIcon }).addTo(map);
+		var angle  = Math.tanh((endPoint.getLatLng().lng - startPoint.getLatLng().lng)/(endPoint.getLatLng().lat-startPoint.getLatLng().lat));
+		var angleDegrees = angle * 180 / Math.PI;
+		var taxiIcon = L.icon({
+			iconUrl: './assets/bullet.png',
+			iconSize: [20, 70],
+			className: 'rotated-icon'
+		});
+		var taxiMarker = L.marker([22.1696, 91.4996], { icon: taxiIcon, rotationAngle: angleDegrees }).addTo(map);
+		var route = [
+			L.latLng(22.1696, 91.4996),
+			L.latLng(22.2637, 91.7159)
+		];
+		var polyline = L.polyline(route, { color: 'blue' }).addTo(map);
+		var speedKmph = 20; 
+		var speedMps = speedKmph * 1000 / 3600; 
+        var distance = startPoint.getLatLng().distanceTo(endPoint.getLatLng());
+		var travelTime = distance / speedMps;
+		var refreshRate = 2; 
+		var totalSteps = travelTime * refreshRate;
+		var refreshInterval = 1000 / refreshRate;
+		var latDelta = endPoint.getLatLng().lat - startPoint.getLatLng().lat;
+		var lngDelta = endPoint.getLatLng().lng - startPoint.getLatLng().lng;
+		var latStep = latDelta / totalSteps;
+		var lngStep = lngDelta / totalSteps;
+		var currentLat = startPoint.getLatLng().lat;
+		var currentLng = startPoint.getLatLng().lng;
+		var step = 0;
+		latStep *= 1000;
+		lngStep *= 1000;
+		
+		// Function to move the taxi
+		function moveTaxi() {
+			if (currentLat < endPoint.getLatLng().lat) {
+				currentLat += latStep;
+				currentLng += lngStep;
+				taxiMarker.setLatLng([currentLat, currentLng]);
+				step++;
+				setTimeout(moveTaxi, refreshInterval);
+			} else {
+				taxiMarker.setLatLng(endPoint.getLatLng());
+			}
+		}
+		moveTaxi();
+
+	</script>
+
+</body>
+
+</html>
