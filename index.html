@@ -10,84 +10,163 @@
 		body {
 			margin: 0;
 			padding: 0;
+			font-family: Arial, sans-serif;
+		}
+		#map {
+			width: 100%;
+			height: 80vh;
+		}
+		#controls {
+			padding: 20px;
+			background-color: #f0f0f0;
 		}
 		.rotated-icon {
-			transform: rotate(45deg); 
-		  }
+			transform: rotate(45deg);
+		}
+		input, button {
+			margin: 5px;
+			padding: 5px;
+		}
 	</style>
-
 </head>
 
 <body>
-	<div id="map" style="width:100%; height: 100vh"></div>
+	<div id="controls">
+		<input type="text" id="startLat" placeholder="Start Latitude">
+		<input type="text" id="startLng" placeholder="Start Longitude">
+		<input type="text" id="endLat" placeholder="End Latitude">
+		<input type="text" id="endLng" placeholder="End Longitude">
+		<input type="number" id="speedControl" min="1" max="100" value="20" step="1">
+		<span>km/h</span>
+		<button onclick="updateRoute()">Update Route</button>
+		<button onclick="resetMap()">Reset</button>
+	</div>
+	<div id="map"></div>
+
 	<script src="https://unpkg.com/leaflet@1.8.0/dist/leaflet.js"></script>
 	<script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
 	<script>
-		var map = L.map('map').setView([22.2167, 91.6078], 11); 
-		mapLink = "<a href='http://openstreetmap.org'>OpenStreetMap</a>";
-		L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
-			attribution: 'Leaflet &copy; ' + mapLink + ', contribution',
-			maxZoom: 18
-		}).addTo(map);
+		var map, startPoint, endPoint, taxiMarker, polyline;
+		var speedKmph = 20;
+		var moveTaxiInterval;
 
-		var startIcon = L.icon({
-			iconUrl: './assets/start.png', 
-			iconSize: [50, 50]
-		});
-
-		var endIcon = L.icon({
-			iconUrl: './assets/end.png',
-			iconSize: [50, 50]
-		});
-		
-
-		var startPoint = L.marker([22.1696, 91.4996], { icon: startIcon }).addTo(map);
-		var endPoint = L.marker([22.2637, 91.7159], { icon: endIcon }).addTo(map);
-		var angle  = Math.tanh((endPoint.getLatLng().lng - startPoint.getLatLng().lng)/(endPoint.getLatLng().lat-startPoint.getLatLng().lat));
-		var angleDegrees = angle * 180 / Math.PI;
-		var taxiIcon = L.icon({
-			iconUrl: './assets/bullet.png',
-			iconSize: [20, 70],
-			className: 'rotated-icon'
-		});
-		var taxiMarker = L.marker([22.1696, 91.4996], { icon: taxiIcon, rotationAngle: angleDegrees }).addTo(map);
-		var route = [
-			L.latLng(22.1696, 91.4996),
-			L.latLng(22.2637, 91.7159)
-		];
-		var polyline = L.polyline(route, { color: 'blue' }).addTo(map);
-		var speedKmph = 20; 
-		var speedMps = speedKmph * 1000 / 3600; 
-        var distance = startPoint.getLatLng().distanceTo(endPoint.getLatLng());
-		var travelTime = distance / speedMps;
-		var refreshRate = 2; 
-		var totalSteps = travelTime * refreshRate;
-		var refreshInterval = 1000 / refreshRate;
-		var latDelta = endPoint.getLatLng().lat - startPoint.getLatLng().lat;
-		var lngDelta = endPoint.getLatLng().lng - startPoint.getLatLng().lng;
-		var latStep = latDelta / totalSteps;
-		var lngStep = lngDelta / totalSteps;
-		var currentLat = startPoint.getLatLng().lat;
-		var currentLng = startPoint.getLatLng().lng;
-		var step = 0;
-		latStep *= 1000;
-		lngStep *= 1000;
-		
-		// Function to move the taxi
-		function moveTaxi() {
-			if (currentLat < endPoint.getLatLng().lat) {
-				currentLat += latStep;
-				currentLng += lngStep;
-				taxiMarker.setLatLng([currentLat, currentLng]);
-				step++;
-				setTimeout(moveTaxi, refreshInterval);
-			} else {
-				taxiMarker.setLatLng(endPoint.getLatLng());
-			}
+		function initMap() {
+			map = L.map('map').setView([22.2167, 91.6078], 11);
+			L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
+				attribution: 'Leaflet &copy; <a href="http://openstreetmap.org">OpenStreetMap</a>, contribution',
+				maxZoom: 18
+			}).addTo(map);
 		}
-		moveTaxi();
 
+		function createIcons() {
+			return {
+				startIcon: L.icon({
+					iconUrl: './assets/start.png',
+					iconSize: [50, 50]
+				}),
+				endIcon: L.icon({
+					iconUrl: './assets/end.png',
+					iconSize: [50, 50]
+				}),
+				taxiIcon: L.icon({
+					iconUrl: './assets/bullet.png',
+					iconSize: [20, 70],
+					className: 'rotated-icon'
+				})
+			};
+		}
+
+		function updateRoute() {
+			if (startPoint) map.removeLayer(startPoint);
+			if (endPoint) map.removeLayer(endPoint);
+			if (taxiMarker) map.removeLayer(taxiMarker);
+			if (polyline) map.removeLayer(polyline);
+
+			var icons = createIcons();
+
+			var startLat = parseFloat(document.getElementById('startLat').value);
+			var startLng = parseFloat(document.getElementById('startLng').value);
+			var endLat = parseFloat(document.getElementById('endLat').value);
+			var endLng = parseFloat(document.getElementById('endLng').value);
+
+			startPoint = L.marker([startLat, startLng], { icon: icons.startIcon }).addTo(map);
+			endPoint = L.marker([endLat, endLng], { icon: icons.endIcon }).addTo(map);
+
+			var angle = Math.atan2(endLng - startLng, endLat - startLat);
+			var angleDegrees = angle * 180 / Math.PI;
+
+			taxiMarker = L.marker([startLat, startLng], { icon: icons.taxiIcon, rotationAngle: angleDegrees }).addTo(map);
+
+			var route = [
+				L.latLng(startLat, startLng),
+				L.latLng(endLat, endLng)
+			];
+			polyline = L.polyline(route, { color: 'blue' }).addTo(map);
+
+			map.fitBounds(polyline.getBounds());
+
+			clearInterval(moveTaxiInterval);
+			moveTaxi();
+		}
+
+		function moveTaxi() {
+			var startLatLng = startPoint.getLatLng();
+			var endLatLng = endPoint.getLatLng();
+			var distance = startLatLng.distanceTo(endLatLng);
+			
+			speedKmph = parseInt(document.getElementById('speedControl').value);
+			var speedMps = speedKmph * 1000 / 3600;
+			var travelTime = distance / speedMps;
+			
+			var refreshRate = 60; // 60 fps
+			var totalSteps = travelTime * refreshRate;
+			var refreshInterval = 1000 / refreshRate;
+			
+			var latDelta = endLatLng.lat - startLatLng.lat;
+			var lngDelta = endLatLng.lng - startLatLng.lng;
+			var latStep = latDelta / totalSteps;
+			var lngStep = lngDelta / totalSteps;
+			
+			var currentLat = startLatLng.lat;
+			var currentLng = startLatLng.lng;
+			var step = 0;
+
+			moveTaxiInterval = setInterval(function() {
+				if (step < totalSteps) {
+					currentLat += latStep;
+					currentLng += lngStep;
+					taxiMarker.setLatLng([currentLat, currentLng]);
+					step++;
+				} else {
+					clearInterval(moveTaxiInterval);
+					taxiMarker.setLatLng(endLatLng);
+				}
+			}, refreshInterval);
+		}
+
+		function resetMap() {
+			clearInterval(moveTaxiInterval);
+			if (startPoint) map.removeLayer(startPoint);
+			if (endPoint) map.removeLayer(endPoint);
+			if (taxiMarker) map.removeLayer(taxiMarker);
+			if (polyline) map.removeLayer(polyline);
+			document.getElementById('startLat').value = '';
+			document.getElementById('startLng').value = '';
+			document.getElementById('endLat').value = '';
+			document.getElementById('endLng').value = '';
+			document.getElementById('speedControl').value = 20;
+			map.setView([22.2167, 91.6078], 11);
+		}
+
+		document.getElementById('speedControl').addEventListener('input', function() {
+			if (startPoint && endPoint) {
+				clearInterval(moveTaxiInterval);
+				moveTaxi();
+			}
+		});
+
+		initMap();
 	</script>
 
 </body>
